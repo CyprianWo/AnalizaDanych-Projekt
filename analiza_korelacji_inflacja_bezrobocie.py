@@ -14,24 +14,42 @@ print("Wczytywanie danych...")
 df_infl = pd.read_csv('inflation_small.tsv', sep='\t')
 df_unemp = pd.read_csv('unemployment_small.tsv', sep='\t')
 
-# Usuń spacje z nazw kolumn (poza pierwszą kolumną z metadanymi)
+# Usuń spacje z nazw kolumn
+print("Kolumny w inflacji (przed strip):", df_infl.columns.tolist())
 df_infl.columns = [col.strip() for col in df_infl.columns]
 df_unemp.columns = [col.strip() for col in df_unemp.columns]
+print("Kolumny w inflacji (po strip):", df_infl.columns.tolist())
 
-print("Kolumny w inflacji:", df_infl.columns.tolist())
-print("Kolumny w bezrobociu:", df_unemp.columns.tolist())
+# --- Rozdziel metadane i filtruj ---
+# Inflacja: freq, unit, coicop, geo
+infl_meta = df_infl.columns[0]
+df_infl[['freq', 'unit', 'coicop', 'geo']] = df_infl[infl_meta].str.split(',', expand=True)
+df_infl = df_infl.drop(columns=[infl_meta])
+# Filtrowanie: tylko coicop=CP00 (ogółem)
+df_infl = df_infl[df_infl['coicop'] == 'CP00']
 
-# 2. Wyodrębnienie kodu kraju
-# Ostatni element w pierwszej kolumnie to kod kraju
-for df in [df_infl, df_unemp]:
-    df['geo'] = df[df.columns[0]].str.split(',').str[-1].str.strip()
-    df.drop(columns=df.columns[0], inplace=True)
+# Bezrobocie: freq, s_adj, age, unit, sex, geo
+unemp_meta = df_unemp.columns[0]
+df_unemp[['freq', 's_adj', 'age', 'unit', 'sex', 'geo']] = df_unemp[unemp_meta].str.split(',', expand=True)
+df_unemp = df_unemp.drop(columns=[unemp_meta])
+# Filtrowanie: tylko procent, ogółem, wiek 15-74
+# (jeśli nie ma takiej kolumny, pomiń warunek)
+df_unemp = df_unemp[
+    (df_unemp['unit'] == 'PC_ACT') &
+    (df_unemp['sex'] == 'T') &
+    (df_unemp['age'] == 'Y15-74')
+]
 
-# 3. Przekształcenie do formatu długiego
+print(df_unemp[['freq', 's_adj', 'age', 'unit', 'sex', 'geo']].drop_duplicates())
+print(df_unemp['unit'].unique())
+print(df_unemp['age'].unique())
+print(df_unemp['sex'].unique())
+
+# 2. Przekształcenie do formatu długiego
 infl_long = df_infl.melt(id_vars=['geo'], var_name='period', value_name='inflation')
 unemp_long = df_unemp.melt(id_vars=['geo'], var_name='period', value_name='unemployment')
 
-# 4. Konwersja okresu na datetime
+# 3. Konwersja okresu na datetime
 infl_long['period'] = pd.to_datetime(infl_long['period'], format='%Y-%m', errors='coerce')
 unemp_long['period'] = pd.to_datetime(unemp_long['period'], format='%Y-%m', errors='coerce')
 
@@ -44,7 +62,7 @@ print("\nPrzykładowe okresy w inflacji:", sorted(infl_long['period'].dropna().u
 print("Przykładowe okresy w bezrobociu:", sorted(unemp_long['period'].dropna().unique())[:5], '...')
 print("Wspólne okresy:", sorted(set(infl_long['period'].dropna()).intersection(set(unemp_long['period'].dropna())))[:5], '...')
 
-# 5. Czyszczenie wartości liczbowych
+# 4. Czyszczenie wartości liczbowych
 # Zamiana ':' i innych nietypowych wartości na NaN, konwersja na float
 def clean_numeric(val):
     if pd.isna(val): return np.nan
@@ -59,7 +77,7 @@ def clean_numeric(val):
 infl_long['inflation'] = infl_long['inflation'].apply(clean_numeric)
 unemp_long['unemployment'] = unemp_long['unemployment'].apply(clean_numeric)
 
-# 6. Usunięcie braków i połączenie danych
+# 5. Usunięcie braków i połączenie danych
 infl_long.dropna(subset=['period', 'inflation'], inplace=True)
 unemp_long.dropna(subset=['period', 'unemployment'], inplace=True)
 df_merged = pd.merge(infl_long, unemp_long, on=['geo', 'period'], how='inner')
@@ -68,7 +86,7 @@ df_merged.dropna(subset=['inflation', 'unemployment'], inplace=True)
 print(f"Połączone dane: {df_merged.shape}")
 print(df_merged.head())
 
-# 7. Korelacja globalna
+# 6. Korelacja globalna
 if not df_merged.empty:
     pearson_corr, pearson_p = stats.pearsonr(df_merged['inflation'], df_merged['unemployment'])
     spearman_corr, spearman_p = stats.spearmanr(df_merged['inflation'], df_merged['unemployment'])
@@ -77,7 +95,7 @@ if not df_merged.empty:
 else:
     print("Brak wspólnych danych do analizy korelacji.")
 
-# 8. Korelacje dla krajów
+# 7. Korelacje dla krajów
 results = []
 for country in sorted(df_merged['geo'].unique()):
     sub = df_merged[df_merged['geo'] == country]
@@ -91,7 +109,7 @@ corr_df.to_csv('wyniki_korelacji_kraj.csv', index=False)
 print("\nTop 10 krajów wg korelacji Pearsona:")
 print(corr_df.sort_values('pearson', ascending=False).head(10))
 
-# 9. Wizualizacje
+# 8. Wizualizacje
 sns.set(font_scale=1.1)
 
 # a) Heatmapa korelacji krajów
