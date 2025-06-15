@@ -29,15 +29,23 @@ sns.set_palette("Set2")
 
 
 def zaawansowane_czyszczenie_danych(df, kolumna_wartosci):
+    """
+    Funkcja do zaawansowanego czyszczenia danych:
+    - Usuwa wartości null i nieskończone
+    - Wykrywa i obsługuje wartości odstające (outliers) metodą IQR
+    - Usuwa skrajne wartości odstające (>3 odchylenia standardowe)
+    """
     print(f"\nZaawansowane czyszczenie danych dla kolumny: {kolumna_wartosci}")
     print(f"Rozmiar przed czyszczeniem: {len(df)}")
 
-    # Usunięcie wartości null i nieskończonych
+    # Inicjalizacja df_clean
     df_clean = df.copy()
+
+    # Usunięcie wartości null i nieskończonych
     df_clean = df_clean.replace([np.inf, -np.inf], np.nan)
     df_clean = df_clean.dropna(subset=[kolumna_wartosci])
 
-    # Detekcja outlierów metodą IQR
+    # Detekcja outlierów metodą IQR (Interquartile Range)
     Q1 = df_clean[kolumna_wartosci].quantile(0.25)
     Q3 = df_clean[kolumna_wartosci].quantile(0.75)
     IQR = Q3 - Q1
@@ -50,7 +58,7 @@ def zaawansowane_czyszczenie_danych(df, kolumna_wartosci):
     print(f"Znaleziono {outliers_count} outlierów ({outliers_count / len(df_clean) * 100:.1f}%)")
     print(f"Granice outlierów: [{lower_bound:.2f}, {upper_bound:.2f}]")
 
-    # Opcjonalnie usuń skrajne outliers (powyżej 3 odchyleń standardowych)
+    # Usunięcie skrajnych outlierów (>3 odchylenia standardowe)
     mean_val = df_clean[kolumna_wartosci].mean()
     std_val = df_clean[kolumna_wartosci].std()
     extreme_outliers = (abs(df_clean[kolumna_wartosci] - mean_val) > 3 * std_val)
@@ -65,6 +73,13 @@ def zaawansowane_czyszczenie_danych(df, kolumna_wartosci):
 
 
 def wczytaj_dane_inflacja(plik_csv):
+    """
+    Wczytuje i przetwarza dane o inflacji:
+    - Konwertuje daty
+    - Wybiera istotne kolumny
+    - Dodaje kolumny czasowe (rok, miesiąc, kwartał)
+    - Czyści dane z wartości odstających
+    """
     print("=" * 60)
     print("WCZYTYWANIE I CZYSZCZENIE DANYCH INFLACJI")
     print("=" * 60)
@@ -101,6 +116,14 @@ def wczytaj_dane_inflacja(plik_csv):
 
 
 def wczytaj_dane_bezrobocie(plik_csv):
+    """
+    Wczytuje i przetwarza dane o bezrobociu:
+    - Agreguje dane po kraju i dacie
+    - Oblicza sumę i średnią wartości
+    - Dodaje kolumny czasowe
+    - Czyści dane z wartości odstających
+    - Zachowuje informacje o płci
+    """
     print("\n" + "=" * 60)
     print("WCZYTYWANIE I CZYSZCZENIE DANYCH BEZROBOCIA")
     print("=" * 60)
@@ -118,7 +141,29 @@ def wczytaj_dane_bezrobocie(plik_csv):
     # Konwersja daty
     df_bezrobocie['TIME_PERIOD'] = pd.to_datetime(df_bezrobocie['TIME_PERIOD'])
 
-    # Agregacja po kraju i dacie
+    # Usunięcie danych dla United States
+    df_bezrobocie = df_bezrobocie[df_bezrobocie['geo'] != 'United States'].copy()
+    print(f"Usunięto dane dla United States. Rozmiar po usunięciu: {len(df_bezrobocie)}")
+
+    # Zachowanie danych o płci
+    df_bezrobocie_sex = df_bezrobocie[df_bezrobocie['sex'].isin(['Females', 'Males'])].copy()
+    
+    # Agregacja po kraju, dacie i płci
+    df_bezrobocie_sex_agg = df_bezrobocie_sex.groupby(['geo', 'TIME_PERIOD', 'sex']).agg({
+        'OBS_VALUE': 'mean'
+    }).reset_index()
+
+    # Pivotowanie danych dla analizy różnic płci
+    df_bezrobocie_sex_pivot = df_bezrobocie_sex_agg.pivot_table(
+        index=['geo', 'TIME_PERIOD'],
+        columns='sex',
+        values='OBS_VALUE'
+    ).reset_index()
+
+    # Obliczenie różnicy między płciami (Males - Females)
+    df_bezrobocie_sex_pivot['Gender_Gap'] = df_bezrobocie_sex_pivot['Males'] - df_bezrobocie_sex_pivot['Females']
+    
+    # Agregacja po kraju i dacie (dla głównej analizy)
     df_bezrobocie_agg = df_bezrobocie.groupby(['geo', 'TIME_PERIOD']).agg({
         'OBS_VALUE': ['sum', 'mean', 'count']
     }).reset_index()
@@ -140,10 +185,18 @@ def wczytaj_dane_bezrobocie(plik_csv):
 
     print(f"\nFinalne dane bezrobocia: {df_bezrobocie_clean.shape}")
 
-    return df_bezrobocie_clean
+    return df_bezrobocie_clean, df_bezrobocie_sex_pivot
 
 
 def lacz_i_przygotuj_dane(df_inflacja, df_bezrobocie):
+    """
+    Łączy dane o inflacji i bezrobociu:
+    - Znajduje wspólne kraje
+    - Łączy dane po kraju i dacie
+    - Dodaje zmienne opóźnione (lag)
+    - Normalizuje dane
+    - Kategoryzuje kraje według poziomu bezrobocia
+    """
     print("\n" + "=" * 60)
     print("ŁĄCZENIE I PRZYGOTOWANIE DANYCH")
     print("=" * 60)
@@ -164,7 +217,7 @@ def lacz_i_przygotuj_dane(df_inflacja, df_bezrobocie):
         print("UWAGA: Brak wspólnych obserwacji!")
         return df_merged
 
-    # Dodanie dodatkowych zmiennych
+    # Dodanie zmiennych opóźnionych
     df_merged['Inflacja_lag1'] = df_merged.groupby('Kraj')['Inflacja'].shift(1)
     df_merged['Bezrobocie_lag1'] = df_merged.groupby('Kraj')['Bezrobocie'].shift(1)
 
@@ -173,7 +226,7 @@ def lacz_i_przygotuj_dane(df_inflacja, df_bezrobocie):
     df_merged['Inflacja_norm'] = scaler.fit_transform(df_merged[['Inflacja']])
     df_merged['Bezrobocie_norm'] = scaler.fit_transform(df_merged[['Bezrobocie']])
 
-    # Kategoryzacja krajów według wielkości gospodarki (na podstawie bezrobocia)
+    # Kategoryzacja krajów według poziomu bezrobocia
     mediana_bezrobocia = df_merged.groupby('Kraj')['Bezrobocie'].median()
     df_merged['Kategoria_kraju'] = df_merged['Kraj'].map(
         lambda x: 'Wysokie bezrobocie' if mediana_bezrobocia[x] > mediana_bezrobocia.median()
@@ -187,6 +240,12 @@ def lacz_i_przygotuj_dane(df_inflacja, df_bezrobocie):
 
 
 def testy_statystyczne(df):
+    """
+    Przeprowadza zaawansowane testy statystyczne:
+    - Testy normalności (Shapiro-Wilk, Jarque-Bera)
+    - Test homoskedastyczności (Levene)
+    - Różne typy korelacji (Pearson, Spearman, Kendall)
+    """
     print("\n" + "=" * 60)
     print("ZAAWANSOWANE TESTY STATYSTYCZNE")
     print("=" * 60)
@@ -211,7 +270,6 @@ def testy_statystyczne(df):
 
     # Test homoskedastyczności (Levene)
     print("\n2. TEST HOMOSKEDASTYCZNOŚCI:")
-    # Podziel dane na grupy według mediany inflacji
     mediana_inflacji = df['Inflacja'].median()
     grupa1 = df[df['Inflacja'] <= mediana_inflacji]['Bezrobocie']
     grupa2 = df[df['Inflacja'] > mediana_inflacji]['Bezrobocie']
@@ -239,7 +297,11 @@ def testy_statystyczne(df):
 
 def analiza_regresji(df):
     """
-    Przeprowadza analizę regresji liniowej
+    Przeprowadza analizę regresji liniowej:
+    - Buduje model regresji liniowej
+    - Oblicza współczynnik determinacji R²
+    - Oblicza błąd średniokwadratowy MSE
+    - Zwraca model i współczynnik determinacji
     """
     print("\n4. ANALIZA REGRESJI LINIOWEJ:")
 
@@ -263,7 +325,10 @@ def analiza_regresji(df):
 
 def analiza_skupien(df):
     """
-    Przeprowadza analizę skupień K-means
+    Przeprowadza analizę skupień K-means:
+    - Znajduje optymalną liczbę skupień metodą łokcia
+    - Przypisuje obserwacje do klastrów
+    - Zwraca dane z dodaną kolumną klastrów
     """
     print("\n5. ANALIZA SKUPIEŃ (K-MEANS):")
 
@@ -288,13 +353,25 @@ def analiza_skupien(df):
 
     return df
 
-def zaawansowane_wizualizacje(df, korelacje):
+
+def zaawansowane_wizualizacje(df, korelacje, df_bezrobocie_sex=None):
+    """
+    Tworzy zaawansowane wizualizacje:
+    1. Wykres rozproszenia z regresją i klastrami
+    2. Szereg czasowy inflacji i bezrobocia
+    3. Korelacje w poszczególnych krajach
+    4. Analiza różnic płci w bezrobociu (jeśli dostępne dane)
+    """
     print("\n6. TWORZENIE WIZUALIZACJI...")
 
-    fig, axes = plt.subplots(1, 3, figsize=(22, 6))
-    axes = axes.flatten()
+    if df_bezrobocie_sex is not None:
+        fig, axes = plt.subplots(2, 2, figsize=(22, 12))
+        axes = axes.flatten()
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=(22, 6))
+        axes = axes.flatten()
 
-    # 1. Scatter + regresja
+    # 1. Wykres rozproszenia z regresją i klastrami
     scatter = axes[0].scatter(df['Bezrobocie'], df['Inflacja'],
                               c=df['Klaster'], cmap='viridis', alpha=0.7, s=80)
     z = np.polyfit(df['Bezrobocie'], df['Inflacja'], 1)
@@ -339,7 +416,21 @@ def zaawansowane_wizualizacje(df, korelacje):
     axes[2].set_xlabel('Współczynnik korelacji')
     axes[2].grid(True, axis='x')
 
-    # Finalizacja
+    # 4. Analiza różnic płci w bezrobociu (jeśli dostępne dane)
+    if df_bezrobocie_sex is not None:
+        # Obliczenie średniej różnicy płci dla każdego kraju
+        gender_gap_by_country = df_bezrobocie_sex.groupby('geo')['Gender_Gap'].mean().sort_values()
+        
+        # Wykres różnic płci
+        bars = axes[3].barh(gender_gap_by_country.index, gender_gap_by_country.values, color='purple')
+        axes[3].axvline(0, color='red', linestyle='--', label='Brak różnicy')
+        
+        
+        axes[3].set_title('Różnica w bezrobociu między płciami (Males-Females)')
+        axes[3].set_xlabel('Różnica w stopie bezrobocia (Males-Females) [tys. osób]')
+        axes[3].grid(True, axis='x')
+
+    # Finalizacja wykresów
     plt.suptitle('Analiza inflacji i bezrobocia', fontsize=18, fontweight='bold')
     plt.tight_layout()
     plt.subplots_adjust(top=0.88)
@@ -348,9 +439,15 @@ def zaawansowane_wizualizacje(df, korelacje):
 
     print("   Zapisano uproszczoną wizualizację jako 'wizualizacja_skoncentrowana.png'")
 
+
 def raport_koncowy(df, korelacje, model, r2):
     """
-    Generuje szczegółowy raport końcowy
+    Generuje szczegółowy raport końcowy zawierający:
+    - Podsumowanie danych
+    - Wyniki korelacji
+    - Interpretację wyników
+    - Wnioski ekonomiczne
+    - Informacje o wygenerowanych plikach
     """
     print("\n" + "=" * 80)
     print("SZCZEGÓŁOWY RAPORT KOŃCOWY")
@@ -372,7 +469,7 @@ def raport_koncowy(df, korelacje, model, r2):
     print(f"   • Spearman: r = {spearman_r:+.4f} (p = {spearman_p:.4f})")
     print(f"   • Kendall:  r = {kendall_r:+.4f} (p = {kendall_p:.4f})")
 
-    # Interpretacja
+    # Interpretacja siły i kierunku korelacji
     if abs(pearson_r) < 0.1:
         sila = "bardzo słaba"
     elif abs(pearson_r) < 0.3:
@@ -419,7 +516,14 @@ def raport_koncowy(df, korelacje, model, r2):
 
 def main():
     """
-    Główna funkcja programu z rozszerzoną analizą
+    Główna funkcja programu:
+    1. Wczytuje i czyści dane
+    2. Łączy dane
+    3. Przeprowadza testy statystyczne
+    4. Wykonuje analizę regresji
+    5. Przeprowadza analizę skupień
+    6. Tworzy wizualizacje
+    7. Generuje raport końcowy
     """
     print("ZAAWANSOWANA ANALIZA KORELACJI: BEZROBOCIE vs INFLACJA")
     print("=" * 80)
@@ -427,7 +531,7 @@ def main():
     try:
         # 1. Wczytanie i czyszczenie danych
         df_inflacja = wczytaj_dane_inflacja('hicp_full.csv')
-        df_bezrobocie = wczytaj_dane_bezrobocie('full_un.csv')
+        df_bezrobocie, df_bezrobocie_sex = wczytaj_dane_bezrobocie('full_un.csv')
 
         # 2. Łączenie danych
         df = lacz_i_przygotuj_dane(df_inflacja, df_bezrobocie)
@@ -446,9 +550,9 @@ def main():
         df = analiza_skupien(df)
 
         # 6. Zaawansowane wizualizacje
-        zaawansowane_wizualizacje(df, korelacje)
+        zaawansowane_wizualizacje(df, korelacje, df_bezrobocie_sex)
 
-        # 8. Raport końcowy
+        # 7. Raport końcowy
         raport_koncowy(df, korelacje, model, r2)
 
         print(f"\nANALIZA ZAKOŃCZONA POMYŚLNIE!")
