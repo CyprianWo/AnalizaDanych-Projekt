@@ -98,6 +98,9 @@ def wczytaj_dane_inflacja(plik_csv):
     # Konwersja TIME_PERIOD na format daty
     df_inflacja['TIME_PERIOD'] = pd.to_datetime(df_inflacja['TIME_PERIOD'])
 
+    # Usunięcie danych dla United States
+    df_inflacja = df_inflacja[df_inflacja['geo'] != 'United States'].copy()
+
     # Selekcja kolumn
     df_inflacja_clean = df_inflacja[['geo', 'TIME_PERIOD', 'OBS_VALUE']].copy()
     df_inflacja_clean.columns = ['Kraj', 'Data', 'Inflacja']
