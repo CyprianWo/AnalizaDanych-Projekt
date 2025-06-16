@@ -245,9 +245,8 @@ def lacz_i_przygotuj_dane(df_inflacja, df_bezrobocie):
 def testy_statystyczne(df):
     """
     Przeprowadza zaawansowane testy statystyczne:
-    - Testy normalności (Shapiro-Wilk, Jarque-Bera)
-    - Test homoskedastyczności (Levene)
-    - Różne typy korelacji (Pearson, Spearman, Kendall)
+    - Testy normalności
+    - Test homoskedastyczności
     """
     print("\n" + "=" * 60)
     print("ZAAWANSOWANE TESTY STATYSTYCZNE")
@@ -302,8 +301,6 @@ def analiza_regresji(df):
     """
     Przeprowadza analizę regresji liniowej:
     - Buduje model regresji liniowej
-    - Oblicza współczynnik determinacji R²
-    - Oblicza błąd średniokwadratowy MSE
     - Zwraca model i współczynnik determinacji
     """
     print("\n4. ANALIZA REGRESJI LINIOWEJ:")
